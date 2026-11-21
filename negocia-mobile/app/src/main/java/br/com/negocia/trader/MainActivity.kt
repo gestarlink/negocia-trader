@@ -22,6 +22,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.net.HttpURLConnection
@@ -68,12 +69,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setBackgroundColor(bg)
-            setPadding(dp(24), dp(28), dp(24), dp(20))
+            setPadding(dp(24), dp(28), dp(24), dp(46))
         }
         root.addView(text("NIA   •   NEGOCIA TRADER", 16f).apply {
             setTypeface(null, Typeface.BOLD)
         }, LinearLayout.LayoutParams(-1, dp(56)))
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 0.35f))
         val mic = Button(this).apply {
             text = "🎙"
             textSize = 50f
@@ -89,8 +90,11 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(text("Toque no microfone para conversar comigo", 14f, muted),
             LinearLayout.LayoutParams(-1, dp(44)))
         status = text("Cloudflare AI • Pronto para conversar", 14f, muted)
-        root.addView(status, LinearLayout.LayoutParams(-1, dp(140)))
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        val responseScroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(status, ScrollView.LayoutParams(-1, -2))
+        }
+        root.addView(responseScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         wakeToggle = Button(this).apply {
             text = "Ativar escuta: Léo ou Leonan"
             setOnClickListener { if (wakeMode) stopWake() else enableWake() }
