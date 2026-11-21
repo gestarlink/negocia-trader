@@ -1,0 +1,48 @@
+name: NIA signed beta release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag, e.g. v0.3.0"
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Validate signing configuration
+        env:
+          KEYSTORE_B64: ${{ secrets.NIA_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.NIA_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.NIA_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.NIA_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_B64" && test -n "$KEYSTORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD" || { echo "Missing signing secrets"; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nia-release.jks"
+      - name: Build signed APK
+        working-directory: negocia-mobile
+        env:
+          NIA_KEYSTORE_PATH: ${{ runner.temp }}/nia-release.jks
+          NIA_KEYSTORE_PASSWORD: ${{ secrets.NIA_KEYSTORE_PASSWORD }}
+          NIA_KEY_ALIAS: ${{ secrets.NIA_KEY_ALIAS }}
+          NIA_KEY_PASSWORD: ${{ secrets.NIA_KEY_PASSWORD }}
+        run: gradle --no-daemon assembleRelease
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.version }}
+        run: |
+          gh release create "$TAG" negocia-mobile/app/build/outputs/apk/release/app-release.apk --title "NIA $TAG" --notes "Beta Android do NegocIA Trader" --target "$GITHUB_SHA"
