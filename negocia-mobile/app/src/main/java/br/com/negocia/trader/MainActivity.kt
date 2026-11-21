@@ -182,6 +182,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                             askLeonan(command)
                         } else {
                             awaitingQuestion = true
+                            followUpUntil = System.currentTimeMillis() + 45000L
                             status.text = "Estou ouvindo. Faça sua pergunta."
                         }
                     } else if (awaitingQuestion && System.currentTimeMillis() < followUpUntil && phrase.isNotBlank()) {
@@ -230,7 +231,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             tts?.setSpeechRate(0.96f)
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) { speaking = true }
-                override fun onDone(utteranceId: String?) { handler.post { speaking = false; scheduleWake() } }
+                override fun onDone(utteranceId: String?) { handler.post { speaking = false; if (awaitingQuestion) followUpUntil = System.currentTimeMillis() + 45000L; scheduleWake() } }
                 override fun onError(utteranceId: String?) { handler.post { speaking = false; scheduleWake() } }
             })
         }
