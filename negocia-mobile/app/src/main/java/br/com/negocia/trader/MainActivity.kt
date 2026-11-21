@@ -96,7 +96,20 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setOnClickListener { if (wakeMode) stopWake() else enableWake() }
         }
         root.addView(wakeToggle, LinearLayout.LayoutParams(-1, dp(56)))
+        val update = Button(this).apply { text = "Verificar atualizações" }
+        val updater = UpdateHelper(this)
+        update.setOnClickListener {
+            updater.check({ version, install ->
+                update.text = "Atualizar para versão $version"
+                update.setOnClickListener { install() }
+            }, true)
+        }
+        root.addView(update, LinearLayout.LayoutParams(-1, dp(50)))
         setContentView(root)
+        updater.check({ version, install ->
+            update.text = "Atualizar para versão $version"
+            update.setOnClickListener { install() }
+        })
     }
 
     private fun listen() {
