@@ -41,6 +41,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var busy = false
     private var speaking = false
     private var awaitingQuestion = false
+    private val conversation = ArrayDeque<Pair<String, String>>()
+    private var followUpUntil = 0L
     private lateinit var wakeToggle: Button
     private val restart = Runnable { startWake() }
     private val endpoint = "https://negocia-trader-ai.gestarlink.workers.dev"
@@ -144,6 +146,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private fun stopWake() {
         wakeMode = false
         awaitingQuestion = false
+        followUpUntil = 0L
         handler.removeCallbacks(restart)
         recognizer?.cancel()
         recognizer?.destroy()
@@ -181,10 +184,11 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                             awaitingQuestion = true
                             status.text = "Estou ouvindo. Faça sua pergunta."
                         }
-                    } else if (awaitingQuestion && phrase.isNotBlank()) {
+                    } else if (awaitingQuestion && System.currentTimeMillis() < followUpUntil && phrase.isNotBlank()) {
                         awaitingQuestion = false
                         askLeonan(phrase)
                     }
+                    if (System.currentTimeMillis() >= followUpUntil) awaitingQuestion = false
                     scheduleWake()
                 }
                 override fun onError(error: Int) { scheduleWake() }
@@ -226,8 +230,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             tts?.setSpeechRate(0.96f)
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) { speaking = true }
-                override fun onDone(utteranceId: String?) { speaking = false; handler.post { scheduleWake() } }
-                override fun onError(utteranceId: String?) { speaking = false; handler.post { scheduleWake() } }
+                override fun onDone(utteranceId: String?) { handler.post { speaking = false; scheduleWake() } }
+                override fun onError(utteranceId: String?) { handler.post { speaking = false; scheduleWake() } }
             })
         }
     }
@@ -241,6 +245,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         handler.removeCallbacks(restart)
         recognizer?.cancel()
         val token = prototypeCode
+        val context = buildString {
+            append("Você é Leonan, assistente de voz em português brasileiro. Responda de forma natural e breve. Considere o histórico recente, quando relevante.\n")
+            for ((question, answer) in conversation) {
+                append("Usuário: ").append(question).append("\nLeonan: ").append(answer).append("\n")
+            }
+            append("Usuário: ").append(message).append("\nLeonan:")
+        }
         status.text = "Você: $message\n\nLeonan está pensando..."
         thread {
             var conn: HttpURLConnection? = null
@@ -254,7 +265,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     setRequestProperty("Authorization", "Bearer $token")
                 }
                 conn.outputStream.use {
-                    it.write(JSONObject().put("message", message).toString().toByteArray(Charsets.UTF_8))
+                    it.write(JSONObject().put("message", context).toString().toByteArray(Charsets.UTF_8))
                 }
                 when (conn.responseCode) {
                     200 -> JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
@@ -268,6 +279,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             runOnUiThread {
                 status.text = "Você: $message\n\nLeonan: $reply"
                 busy = false
+                if (reply.isNotBlank()) {
+                    conversation.addLast(message to reply)
+                    while (conversation.size > 5) conversation.removeFirst()
+                }
+                if (wakeMode) {
+                    awaitingQuestion = true
+                    followUpUntil = System.currentTimeMillis() + 45000L
+                }
                 speak(reply)
                 if (!speechReady) scheduleWake()
             }
