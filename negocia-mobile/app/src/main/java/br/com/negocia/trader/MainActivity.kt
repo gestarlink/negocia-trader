@@ -26,8 +26,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private val speechRequest = 1200
     private val endpoint = "https://negocia-trader-ai.gestarlink.workers.dev"
     private lateinit var status: TextView
-    private lateinit var tokenInput: EditText
-    private lateinit var activation: LinearLayout
+    private val prototypeCode = "22AbdvvF00dmCNe_GQuuB-_Gb7YwM2PO"
+    
     private var tts: TextToSpeech? = null
     private var speechReady = false
     private val bg = Color.rgb(16, 24, 39)
@@ -73,40 +73,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         status = text("Cloudflare AI • Pronto para conversar", 14f, muted)
         root.addView(status, LinearLayout.LayoutParams(-1, dp(140)))
         root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-        activation = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = shape(Color.rgb(24, 36, 58), 16)
-        }
-        activation.addView(text("Ativação inicial do aparelho", 14f))
-        tokenInput = EditText(this).apply {
-            hint = "Código de ativação"
-            setHintTextColor(muted)
-            setTextColor(Color.WHITE)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setSingleLine(true)
-        }
-        activation.addView(tokenInput)
-        activation.addView(Button(this).apply {
-            text = "Ativar e guardar neste aparelho"
-            setOnClickListener {
-                if (tokenInput.text.isNullOrBlank()) {
-                    status.text = "Informe o código de ativação."
-                } else {
-                    // This is a temporary activation UI. No token is stored in plaintext.
-                    status.text = "Código informado. A validação segura será concluída na próxima etapa."
-                }
-            }
-        })
-        root.addView(activation, LinearLayout.LayoutParams(-1, -2))
         setContentView(root)
     }
 
     private fun listen() {
-        if (tokenInput.text.isNullOrBlank()) {
-            status.text = "Ative primeiro o acesso à IA."
-            return
-        }
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
@@ -126,7 +96,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun askLeonan(message: String) {
-        val token = tokenInput.text.toString()
+        val token = prototypeCode
         status.text = "Você: $message\n\nLeonan está pensando..."
         thread {
             var conn: HttpURLConnection? = null
