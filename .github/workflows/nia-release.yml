@@ -4,6 +4,7 @@ on:
     branches: [feature/negocia-trader-android]
     paths:
       - 'negocia-mobile/app/build.gradle.kts'
+      - 'negocia-mobile/app/src/**'
       - '.github/workflows/nia-release.yml'
   workflow_dispatch:
     inputs:
