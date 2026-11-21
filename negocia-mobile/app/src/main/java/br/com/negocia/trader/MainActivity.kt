@@ -92,7 +92,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         status = text("Cloudflare AI • Pronto para conversar", 14f, muted)
         val responseScroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(status, ScrollView.LayoutParams(-1, -2))
+            addView(status, android.widget.FrameLayout.LayoutParams(-1, -2))
         }
         root.addView(responseScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         wakeToggle = Button(this).apply {
