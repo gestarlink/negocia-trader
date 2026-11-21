@@ -12,6 +12,23 @@ android {
         versionCode = 2
         versionName = "0.2.0"
     }
+    signingConfigs {
+        create("niaRelease") {
+            val path = System.getenv("NIA_KEYSTORE_PATH")
+            if (!path.isNullOrBlank()) {
+                storeFile = file(path)
+                storePassword = System.getenv("NIA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("NIA_KEY_ALIAS")
+                keyPassword = System.getenv("NIA_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("niaRelease")
+            isMinifyEnabled = false
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
