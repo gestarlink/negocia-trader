@@ -2,6 +2,8 @@ package br.com.negocia.trader
 
 import android.app.Activity
 import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -75,8 +77,28 @@ class UpdateHelper(private val activity: Activity) {
                 .setTitle("Atualização do NIA")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "nia-update.apk")
-            manager.enqueue(request)
-            show("Download iniciado. Abra o APK baixado para confirmar a instalação.")
+            val id = manager.enqueue(request)
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (intent?.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) != id) return
+                    try { activity.unregisterReceiver(this) } catch (_: Exception) {}
+                    val uri = manager.getUriForDownloadedFile(id)
+                    if (uri == null) { show("Download não concluído."); return }
+                    val install = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try { activity.startActivity(install) }
+                    catch (_: Exception) { show("Não foi possível abrir o instalador.") }
+                }
+            }
+            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+            if (Build.VERSION.SDK_INT >= 33) activity.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            else {
+                @Suppress("DEPRECATION")
+                activity.registerReceiver(receiver, filter)
+            }
+            show("Baixando atualização. A instalação será solicitada ao concluir.")
         } catch (_: Exception) { show("Não foi possível iniciar o download.") }
     }
 }
