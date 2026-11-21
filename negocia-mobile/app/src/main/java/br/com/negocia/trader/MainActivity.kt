@@ -51,6 +51,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     
     private var tts: TextToSpeech? = null
     private var speechReady = false
+    private var voiceNotice = ""
     private val bg = Color.rgb(16, 24, 39)
     private val blue = Color.rgb(45, 119, 235)
     private val muted = Color.rgb(169, 187, 209)
@@ -102,6 +103,17 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setOnClickListener { if (wakeMode) stopWake() else enableWake() }
         }
         root.addView(wakeToggle, LinearLayout.LayoutParams(-1, dp(56)))
+        val voiceSettings = Button(this).apply {
+            text = "Configurar voz offline Razo"
+            setOnClickListener {
+                try {
+                    startActivity(Intent("com.android.settings.TTS_SETTINGS"))
+                } catch (_: Exception) {
+                    status.text = "Abra Configurações > Idioma > Conversão de texto em voz e selecione o mecanismo com Razo."
+                }
+            }
+        }
+        root.addView(voiceSettings, LinearLayout.LayoutParams(-1, dp(50)))
         val update = Button(this).apply { text = "Verificar atualizações" }
         val updater = UpdateHelper(this)
         update.setOnClickListener {
@@ -214,6 +226,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         super.onResume()
         foreground = true
         if (wakeMode) scheduleWake()
+        if (speechReady) onInit(TextToSpeech.SUCCESS)
     }
     override fun onPause() {
         foreground = false
@@ -225,9 +238,16 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         speechReady = result == TextToSpeech.SUCCESS
         if (speechReady) {
             tts?.language = Locale.forLanguageTag("pt-BR")
-            tts?.voices?.filter { it.locale.language == "pt" && it.locale.country == "BR" &&
-                !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) }
-                ?.maxByOrNull { it.quality }?.let { tts?.voice = it }
+            val available = tts?.voices?.filter {
+                it.locale.language == "pt" && it.locale.country == "BR" &&
+                    !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+            }.orEmpty()
+            val razo = available.firstOrNull { it.name.contains("razo", ignoreCase = true) }
+            val chosen = razo ?: available.maxByOrNull { it.quality }
+            chosen?.let { tts?.voice = it }
+            voiceNotice = if (razo != null) "Voz Razo selecionada." else
+                "Razo não está disponível no mecanismo de voz atual. Instale a voz no HayaiTTS e selecione esse mecanismo nas configurações Android."
+            if (::status.isInitialized) status.text = voiceNotice
             tts?.setSpeechRate(0.96f)
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) { speaking = true }
