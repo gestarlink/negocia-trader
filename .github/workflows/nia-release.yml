@@ -42,7 +42,7 @@ jobs:
           echo "Checking keystore password and key alias..."
           keytool -list -keystore "$RUNNER_TEMP/nia-release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null || { echo "::error::Keystore password or key alias is invalid. Recheck NIA_KEYSTORE_PASSWORD and NIA_KEY_ALIAS."; exit 1; }
           echo "Keystore credentials accepted."
-          echo "Signing credentials revalidated for NIA v0.3.0."
+          echo "Signing credentials revalidated for NIA v0.3.0 - retry after corrected secrets."
       - name: Build signed APK
         working-directory: negocia-mobile
         env:
