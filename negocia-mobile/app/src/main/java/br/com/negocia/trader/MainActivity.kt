@@ -1,5 +1,13 @@
 package br.com.negocia.trader
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.speech.SpeechRecognizer
+import android.speech.RecognitionListener
+import android.speech.tts.UtteranceProgressListener
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -24,6 +32,16 @@ import kotlin.concurrent.thread
 
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private val speechRequest = 1200
+    private val permissionRequest = 3001
+    private var recognizer: SpeechRecognizer? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var wakeMode = false
+    private var foreground = false
+    private var busy = false
+    private var speaking = false
+    private var awaitingQuestion = false
+    private lateinit var wakeToggle: Button
+    private val restart = Runnable { startWake() }
     private val endpoint = "https://negocia-trader-ai.gestarlink.workers.dev"
     private lateinit var status: TextView
     private val prototypeCode = "22AbdvvF00dmCNe_GQuuB-_Gb7YwM2PO"
@@ -73,6 +91,11 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         status = text("Cloudflare AI • Pronto para conversar", 14f, muted)
         root.addView(status, LinearLayout.LayoutParams(-1, dp(140)))
         root.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        wakeToggle = Button(this).apply {
+            text = "Ativar escuta: Léo ou Leonan"
+            setOnClickListener { if (wakeMode) stopWake() else enableWake() }
+        }
+        root.addView(wakeToggle, LinearLayout.LayoutParams(-1, dp(56)))
         setContentView(root)
     }
 
@@ -86,9 +109,110 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         catch (_: ActivityNotFoundException) { status.text = "Reconhecimento de voz indisponível." }
     }
 
+
+    private fun enableWake() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), permissionRequest)
+            return
+        }
+        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            status.text = "Reconhecimento local indisponível neste aparelho. Use o microfone."
+            return
+        }
+        wakeMode = true
+        wakeToggle.text = "Desativar escuta"
+        status.text = "Aguardando Léo ou Leonan..."
+        startWake()
+    }
+    private fun stopWake() {
+        wakeMode = false
+        awaitingQuestion = false
+        handler.removeCallbacks(restart)
+        recognizer?.cancel()
+        recognizer?.destroy()
+        recognizer = null
+        wakeToggle.text = "Ativar escuta: Léo ou Leonan"
+    }
+    private fun scheduleWake() {
+        handler.removeCallbacks(restart)
+        if (wakeMode && foreground && !busy && !speaking) handler.postDelayed(restart, 900L)
+    }
+    private fun startWake() {
+        if (!wakeMode || !foreground || busy || speaking) return
+        recognizer?.destroy()
+        recognizer = null
+        try {
+            recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            recognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onResults(results: Bundle?) {
+                    val phrase = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    val normalized = java.text.Normalizer.normalize(phrase.lowercase(Locale.ROOT),
+                        java.text.Normalizer.Form.NFD).replace(Regex("[\\p{Mn}]"), "")
+                    val match = Regex("\\b(leonan|leo)\\b").find(normalized)
+                    if (match != null) {
+                        val command = phrase.substring(match.range.last + 1).trim(' ', ',', ':', '?', '!')
+                        if (command.isNotBlank()) {
+                            awaitingQuestion = false
+                            askLeonan(command)
+                        } else {
+                            awaitingQuestion = true
+                            status.text = "Estou ouvindo. Faça sua pergunta."
+                        }
+                    } else if (awaitingQuestion && phrase.isNotBlank()) {
+                        awaitingQuestion = false
+                        askLeonan(phrase)
+                    }
+                    scheduleWake()
+                }
+                override fun onError(error: Int) { scheduleWake() }
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            }
+            recognizer?.startListening(intent)
+        } catch (_: Exception) {
+            stopWake()
+            status.text = "Não foi possível iniciar a escuta local."
+        }
+    }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == permissionRequest && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) enableWake()
+    }
+    override fun onResume() {
+        super.onResume()
+        foreground = true
+        if (wakeMode) scheduleWake()
+    }
+    override fun onPause() {
+        foreground = false
+        handler.removeCallbacks(restart)
+        recognizer?.cancel()
+        super.onPause()
+    }
     override fun onInit(result: Int) {
         speechReady = result == TextToSpeech.SUCCESS
-        if (speechReady) tts?.language = Locale.forLanguageTag("pt-BR")
+        if (speechReady) {
+            tts?.language = Locale.forLanguageTag("pt-BR")
+            tts?.voices?.filter { it.locale.language == "pt" && it.locale.country == "BR" &&
+                !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) }
+                ?.maxByOrNull { it.quality }?.let { tts?.voice = it }
+            tts?.setSpeechRate(0.96f)
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) { speaking = true }
+                override fun onDone(utteranceId: String?) { speaking = false; handler.post { scheduleWake() } }
+                override fun onError(utteranceId: String?) { speaking = false; handler.post { scheduleWake() } }
+            })
+        }
     }
 
     private fun speak(message: String) {
@@ -96,6 +220,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun askLeonan(message: String) {
+        busy = true
+        handler.removeCallbacks(restart)
+        recognizer?.cancel()
         val token = prototypeCode
         status.text = "Você: $message\n\nLeonan está pensando..."
         thread {
@@ -123,7 +250,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             } finally { conn?.disconnect() }
             runOnUiThread {
                 status.text = "Você: $message\n\nLeonan: $reply"
+                busy = false
                 speak(reply)
+                if (!speechReady) scheduleWake()
             }
         }
     }
@@ -138,6 +267,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+        wakeMode = false
+        handler.removeCallbacks(restart)
+        recognizer?.destroy()
         tts?.stop()
         tts?.shutdown()
         super.onDestroy()
