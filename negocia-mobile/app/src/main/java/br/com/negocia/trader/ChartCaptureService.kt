@@ -228,7 +228,14 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
                 if (connection!!.responseCode == 200) {
                     JSONObject(connection!!.inputStream.bufferedReader().use { it.readText() })
                         .optString("reply", "Não consegui interpretar o gráfico.")
-                } else "A análise visual não está disponível agora. Código " + connection!!.responseCode
+                } else {
+                    val errorText = connection!!.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    val detail = try {
+                        val json = JSONObject(errorText)
+                        json.optString("error", "Falha") + " " + json.optString("detail", "")
+                    } catch (_: Exception) { "Resposta do serviço indisponível" }
+                    "A análise falhou. Código " + connection!!.responseCode + ". " + detail.take(160)
+                }
             } catch (_: Exception) {
                 "Não consegui consultar a análise visual. Verifique a conexão e tente novamente."
             } finally { connection?.disconnect() }
