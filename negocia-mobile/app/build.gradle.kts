@@ -9,8 +9,8 @@ android {
         applicationId = "br.com.negocia.trader"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
-        versionName = "1.1.5"
+        versionCode = 19
+        versionName = "1.1.6"
     }
     signingConfigs {
         create("niaRelease") {
