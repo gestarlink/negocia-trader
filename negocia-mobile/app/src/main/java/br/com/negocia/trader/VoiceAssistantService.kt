@@ -39,7 +39,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
-            NotificationChannel(CHANNEL, "Leonan • escuta ativa", NotificationManager.IMPORTANCE_LOW))
+            NotificationChannel(CHANNEL, "JAY • escuta ativa", NotificationManager.IMPORTANCE_LOW))
         val engines = packageManager.queryIntentServices(Intent("android.intent.action.TTS_SERVICE"), 0)
         val hayai = engines.firstOrNull { it.serviceInfo.packageName.contains("hayai", true) }
         tts = if (hayai != null) TextToSpeech(this, this, hayai.serviceInfo.packageName)
@@ -54,7 +54,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Leonan • escuta em segundo plano")
+            .setContentTitle("JAY • escuta em segundo plano")
             .setContentText(message).setContentIntent(open).setOngoing(true)
             .addAction(android.R.drawable.ic_delete, "Desativar escuta", stop).build()
     }
@@ -67,9 +67,9 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             if (!enabled) {
                 try {
                     if (Build.VERSION.SDK_INT >= 29)
-                        startForeground(111, notification("Aguardando Léo ou Leonan"),
+                        startForeground(111, notification("Aguardando AJ"),
                             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-                    else startForeground(111, notification("Aguardando Léo ou Leonan"))
+                    else startForeground(111, notification("Aguardando AJ"))
                     enabled = true
                     broadcastState()
                     listen()
@@ -127,7 +127,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
         } catch (_: Exception) { listening = false; retry(2500L) }
     }
     private fun handle(alternatives: List<String>) {
-        val regex = Regex("\\b(leonan|leonam|leona|leo)\\b")
+        val regex = Regex("\\b(a\\s*j|ei\\s*jei|a\\s*jei|aj|agei)\\b")
         val phrase = alternatives.firstOrNull { regex.containsMatchIn(normalize(it)) }
             ?: alternatives.firstOrNull().orEmpty()
         val match = regex.find(normalize(phrase))
@@ -136,7 +136,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             if (command.isBlank()) {
                 waiting = true
                 followUpDeadline = System.currentTimeMillis() + 20000L
-                say("Oi Jay, o que você deseja?")
+                say("Olá, Jay. O que você deseja?")
             } else { waiting = false; execute(command) }
         } else if (waiting && System.currentTimeMillis() < followUpDeadline && phrase.isNotBlank()) {
             waiting = false
@@ -215,6 +215,22 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             say("O Android não permite encerrar outro aplicativo diretamente. Posso voltar à tela inicial.")
             return
         }
+        val access = JayAccessibilityService.instance
+        if (Regex("\\b(voltar|volte|retornar)\\b").containsMatchIn(normalized) &&
+            !normalized.contains("inicio")) {
+            say(if (access?.goBack() == true) "Voltei." else "Ative a acessibilidade do JAY nas configurações para voltar por voz.")
+            return
+        }
+        if (normalized.contains("role para baixo") || normalized.contains("rolar para baixo") ||
+            normalized.contains("descer a tela")) {
+            say(if (access?.scrollForward() == true) "Rolei a tela." else "Não consegui rolar. Verifique a permissão de acessibilidade.")
+            return
+        }
+        if (normalized.contains("role para cima") || normalized.contains("rolar para cima") ||
+            normalized.contains("subir a tela")) {
+            say(if (access?.scrollBackward() == true) "Rolei a tela." else "Não consegui rolar. Verifique a permissão de acessibilidade.")
+            return
+        }
         processing = true
         recognizer?.cancel()
         listening = false
@@ -228,7 +244,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     setRequestProperty("Authorization", "Bearer " + MainActivity.NIA_ACCESS_TOKEN)
                 }
-                val prompt = "Você é Leonan, assistente de voz. Responda em português brasileiro, brevemente. Usuário: " + command.take(520)
+                val prompt = "Você é JAY, assistente de acessibilidade e inclusão digital. Responda em português brasileiro, brevemente. Usuário: " + command.take(520)
                 connection!!.outputStream.use { it.write(JSONObject().put("message", prompt).toString().toByteArray()) }
                 if (connection!!.responseCode == 200)
                     JSONObject(connection!!.inputStream.bufferedReader().use { it.readText() })
@@ -238,7 +254,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             finally { connection?.disconnect() }
             main.post {
                 processing = false
-                update("Aguardando Léo ou Leonan")
+                update("Aguardando AJ")
                 say(reply)
             }
         }
