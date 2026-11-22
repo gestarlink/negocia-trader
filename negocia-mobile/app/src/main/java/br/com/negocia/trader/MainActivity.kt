@@ -311,22 +311,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             for (ring in 3 downTo 0) {
                 val radius = base + ring * dp(12) + energy * dp(24) +
                     kotlin.math.sin(phase + ring).toFloat() * dp(3)
-                paint.color = Color.argb(if (ring == 0) 240 else 45, 48, 145, 245)
+                paint.color = Color.argb(if (ring == 0) 175 else 65, 48 + ring * 8, 145 + ring * 4, 245)
                 paint.style = if (ring == 0) Paint.Style.FILL else Paint.Style.STROKE
                 paint.strokeWidth = dp(3).toFloat()
                 canvas.drawCircle(cx, cy, radius, paint)
             }
-            paint.style = Paint.Style.FILL
-            paint.color = Color.WHITE
-            paint.textAlign = Paint.Align.CENTER
-            paint.textSize = dp(13).toFloat()
-            paint.typeface = Typeface.DEFAULT_BOLD
-            canvas.drawText(when (mode) {
-                1 -> "OUVINDO"
-                2 -> "PENSANDO"
-                3 -> "FALANDO"
-                else -> "TOQUE PARA FALAR"
-            }, cx, cy + dp(4), paint)
+            // Centro limpo: a aura visual substitui o texto de toque.
+
         }
         override fun onDetachedFromWindow() {
             animation.cancel()
@@ -347,13 +338,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         handler.removeCallbacks(restart)
         recognizer?.cancel()
         val token = prototypeCode
-        val context = buildString {
-            append("Você é Leonan. Responda em português brasileiro com até 2 frases curtas, salvo se o usuário pedir detalhes. Use o histórico apenas quando relevante.\n")
-            for ((question, answer) in conversation) {
-                append("Usuário: ").append(question).append("\nLeonan: ").append(answer).append("\n")
-            }
-            append("Usuário: ").append(message).append("\nLeonan:")
-        }
+        val question = message.take(520)
+        val history = conversation.lastOrNull()?.let { (q, answer) ->
+            "Contexto anterior: " + q.take(65) + " / " + answer.take(95) + "\n"
+        }.orEmpty()
+        val context = ("Responda em português brasileiro, em até duas frases.\n" +
+            history + "Usuário: " + question + "\nLeonan:").take(780)
         status.text = "Você: $message\n\nLeonan está pensando..."
         thread {
             val startedAt = System.currentTimeMillis()
