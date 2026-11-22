@@ -18,6 +18,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".VoiceAssistantService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".ChartCaptureService" android:exported="false" android:foregroundServiceType="microphone|mediaProjection" />
     </application>
 </manifest>
