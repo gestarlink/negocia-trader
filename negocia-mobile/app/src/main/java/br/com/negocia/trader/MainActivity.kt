@@ -335,7 +335,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun speak(message: String) {
-        if (speechReady) tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "nia_reply")
+        if (speechReady) {
+            val spoken = message.replace(Regex("\\btrader\\b", RegexOption.IGNORE_CASE), "trêider")
+            tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "nia_reply")
+        }
     }
 
     private fun askLeonan(message: String) {
@@ -345,7 +348,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         recognizer?.cancel()
         val token = prototypeCode
         val context = buildString {
-            append("Você é Leonan, assistente de voz em português brasileiro. Responda de forma natural e breve. Considere o histórico recente, quando relevante.\n")
+            append("Você é Leonan. Responda em português brasileiro com até 2 frases curtas, salvo se o usuário pedir detalhes. Use o histórico apenas quando relevante.\n")
             for ((question, answer) in conversation) {
                 append("Usuário: ").append(question).append("\nLeonan: ").append(answer).append("\n")
             }
@@ -353,6 +356,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
         status.text = "Você: $message\n\nLeonan está pensando..."
         thread {
+            val startedAt = System.currentTimeMillis()
             var conn: HttpURLConnection? = null
             val reply = try {
                 conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -376,7 +380,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 "Não consegui conectar à IA. Verifique sua internet."
             } finally { conn?.disconnect() }
             runOnUiThread {
-                status.text = "Você: $message\n\nLeonan: $reply"
+                val elapsed = (System.currentTimeMillis() - startedAt) / 1000f
+                status.text = "Você: $message\n\nLeonan: $reply\n\nResposta da IA: %.1f s".format(Locale.US, elapsed)
                 busy = false
                 if (reply.isNotBlank()) {
                     conversation.addLast(message to reply)
