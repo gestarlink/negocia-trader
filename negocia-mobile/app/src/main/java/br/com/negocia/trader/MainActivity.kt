@@ -229,7 +229,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 override fun onEndOfSpeech() {}
                 override fun onPartialResults(partialResults: Bundle?) {}
                 override fun onResults(results: Bundle?) {
-                    val phrase = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    val alternatives = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
+                    val phrase = alternatives.firstOrNull { candidate ->
+                        val clean = java.text.Normalizer.normalize(candidate.lowercase(Locale.ROOT), java.text.Normalizer.Form.NFD)
+                            .replace(Regex("[\\p{Mn}]"), "")
+                        Regex("\\b(leonan|leonam|leona|leo)\\b").containsMatchIn(clean)
+                    } ?: alternatives.firstOrNull().orEmpty()
                     val normalized = java.text.Normalizer.normalize(phrase.lowercase(Locale.ROOT),
                         java.text.Normalizer.Form.NFD).replace(Regex("[\\p{Mn}]"), "")
                     val match = Regex("\\b(leonan|leonam|leona|leo)\\b").find(normalized)
@@ -258,6 +263,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             }
             recognizer?.startListening(intent)
         } catch (_: Exception) {
