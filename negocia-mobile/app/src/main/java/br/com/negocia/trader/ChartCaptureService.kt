@@ -4,6 +4,12 @@ import android.app.*
 import android.content.*
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.util.Base64
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
+import kotlin.concurrent.thread
+import java.io.ByteArrayOutputStream
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -38,6 +44,7 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
     private var awaiting = false
     private var listening = false
     private var active = false
+    private var analyzing = false
     private val loop = Runnable { listen() }
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() { main.post { stopSelf() } }
@@ -47,7 +54,10 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
         super.onCreate()
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel(CHANNEL, "Leonan acompanhando gráfico", NotificationManager.IMPORTANCE_LOW))
-        tts = TextToSpeech(this, this)
+        val engines = packageManager.queryIntentServices(Intent("android.intent.action.TTS_SERVICE"), 0)
+        val hayai = engines.firstOrNull { it.serviceInfo.packageName.contains("hayai", true) }
+        tts = if (hayai != null) TextToSpeech(this, this, hayai.serviceInfo.packageName)
+              else TextToSpeech(this, this)
     }
 
     private fun notification(message: String): Notification {
@@ -165,6 +175,7 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun capture() {
+        if (analyzing) { say("Ainda estou analisando a captura anterior."); return }
         val image = reader?.acquireLatestImage()
         if (image == null) {
             update("Aguardando próximo quadro da tela")
@@ -179,21 +190,63 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
             val padded = Bitmap.createBitmap(row, height, Bitmap.Config.ARGB_8888)
             padded.copyPixelsFromBuffer(plane.buffer)
             val bitmap = Bitmap.createBitmap(padded, 0, 0, width, height)
-            val file = File(cacheDir, "nia_chart_latest.png")
-            FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 90, it) }
+            val targetWidth = minOf(1024, width)
+            val scaledHeight = (height.toDouble() * targetWidth / width).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(bitmap, targetWidth, scaledHeight, true)
+            val bytes = ByteArrayOutputStream().also { scaled.compress(Bitmap.CompressFormat.JPEG, 76, it) }.toByteArray()
+            if (scaled !== bitmap) scaled.recycle()
             bitmap.recycle()
             padded.recycle()
-            update("Captura realizada localmente • análise visual ainda não ativada")
-            say("Jay, capturei a tela. A interpretação do gráfico será ativada na próxima etapa.")
+            analyze(bytes)
         } catch (_: Exception) {
             update("Falha ao capturar a imagem")
             say("Não consegui capturar o gráfico.")
         } finally { image.close() }
     }
 
+    private fun analyze(jpeg: ByteArray) {
+        analyzing = true
+        update("Leonan está interpretando o gráfico...")
+        thread {
+            var connection: HttpURLConnection? = null
+            val reply = try {
+                val image = "data:image/jpeg;base64," + Base64.encodeToString(jpeg, Base64.NO_WRAP)
+                connection = (URL("https://nia-chart-vision.gestarlink.workers.dev/analyze")
+                    .openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15000
+                    readTimeout = 60000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("Authorization", "Bearer " + MainActivity.NIA_ACCESS_TOKEN)
+                }
+                connection!!.outputStream.use {
+                    it.write(JSONObject().put("image", image)
+                        .put("question", "Descreva o gráfico atual, cenários condicionais e riscos.")
+                        .toString().toByteArray(Charsets.UTF_8))
+                }
+                if (connection!!.responseCode == 200) {
+                    JSONObject(connection!!.inputStream.bufferedReader().use { it.readText() })
+                        .optString("reply", "Não consegui interpretar o gráfico.")
+                } else "A análise visual não está disponível agora. Código " + connection!!.responseCode
+            } catch (_: Exception) {
+                "Não consegui consultar a análise visual. Verifique a conexão e tente novamente."
+            } finally { connection?.disconnect() }
+            main.post {
+                analyzing = false
+                if (active) {
+                    update("Análise concluída • diga Léo, analise o gráfico novamente")
+                    say(reply.take(1100))
+                }
+            }
+        }
+    }
+
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts?.language = Locale.forLanguageTag("pt-BR")
+            tts?.voices?.firstOrNull { it.name.contains("faber", true) }?.let { tts?.voice = it }
+            tts?.setSpeechRate(0.96f)
             tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) { main.post { speaking = false; retry() } }
