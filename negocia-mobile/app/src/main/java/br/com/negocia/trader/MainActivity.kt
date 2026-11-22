@@ -58,6 +58,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private val restart = Runnable { startWake() }
     private val endpoint = "https://negocia-trader-ai.gestarlink.workers.dev"
     private lateinit var status: TextView
+    private lateinit var transcriptPanel: ScrollView
+    private var transcriptVisible = false
     private val prototypeCode = "22AbdvvF00dmCNe_GQuuB-_Gb7YwM2PO"
     
     private var tts: TextToSpeech? = null
@@ -104,6 +106,17 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             isFillViewport = true
             addView(status, android.widget.FrameLayout.LayoutParams(-1, -2))
         }
+        transcriptPanel = responseScroll
+        responseScroll.visibility = View.GONE
+        val historyToggle = text("⌄  Ver conversa", 14f, muted).apply {
+            setPadding(0, dp(8), 0, dp(8))
+            setOnClickListener {
+                transcriptVisible = !transcriptVisible
+                responseScroll.visibility = if (transcriptVisible) View.VISIBLE else View.GONE
+                text = if (transcriptVisible) "⌃  Ocultar conversa" else "⌄  Ver conversa"
+            }
+        }
+        root.addView(historyToggle, LinearLayout.LayoutParams(-1, dp(44)))
         root.addView(responseScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         wakeToggle = Button(this).apply {
             text = "Ativar escuta: Léo ou Leonan"
@@ -210,7 +223,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                         } else {
                             awaitingQuestion = true
                             followUpUntil = System.currentTimeMillis() + 45000L
-                            status.text = "Estou ouvindo. Faça sua pergunta."
+                            status.text = "Oi Jay, estou ouvindo."
+                            speak("Oi Jay, o que você deseja?")
                         }
                     } else if (awaitingQuestion && System.currentTimeMillis() < followUpUntil && phrase.isNotBlank()) {
                         awaitingQuestion = false
@@ -381,7 +395,27 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun tryLocalCommand(message: String): Boolean {
+        val normalized = java.text.Normalizer.normalize(message.lowercase(Locale.ROOT),
+            java.text.Normalizer.Form.NFD).replace(Regex("[\\p{Mn}]"), "")
+        if (Regex("\\b(abra|abrir|abre|inicie|iniciar)\\b").containsMatchIn(normalized) &&
+            normalized.contains("whatsapp")) {
+            val launch = packageManager.getLaunchIntentForPackage("com.whatsapp")
+                ?: packageManager.getLaunchIntentForPackage("com.whatsapp.w4b")
+            if (launch != null) {
+                try {
+                    startActivity(launch)
+                    status.text = "WhatsApp aberto. Para ler conversas, será necessária uma integração autorizada."
+                    speak("Abri o WhatsApp, Jay.")
+                } catch (_: Exception) { speak("Não consegui abrir o WhatsApp.") }
+            } else speak("Não encontrei o WhatsApp instalado.")
+            return true
+        }
+        return false
+    }
+
     private fun askLeonan(message: String) {
+        if (tryLocalCommand(message)) { busy = false; orb.mode = 1; return }
         busy = true
         orb.mode = 2
         handler.removeCallbacks(restart)
@@ -391,7 +425,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         val history = conversation.lastOrNull()?.let { (q, answer) ->
             "Contexto anterior: " + q.take(65) + " / " + answer.take(95) + "\n"
         }.orEmpty()
-        val context = ("Responda em português brasileiro, em até duas frases.\n" +
+        val context = ("Você é Leonan, criado por Jay McKenzie, CEO da GestarLink. Jay é seu criador. Não invente outras origens. Responda em português brasileiro, em até duas frases.\n" +
             history + "Usuário: " + question + "\nLeonan:").take(780)
         status.text = "Você: $message\n\nLeonan está pensando..."
         thread {
