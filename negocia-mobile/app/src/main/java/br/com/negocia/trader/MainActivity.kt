@@ -109,6 +109,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             LinearLayout.LayoutParams(-1, dp(54)))
         root.addView(text("Sua inteligência por voz", 13f, muted),
             LinearLayout.LayoutParams(-1, dp(34)))
+        val installedVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "desconhecida"
+        root.addView(text("Versão $installedVersion", 12f, muted),
+            LinearLayout.LayoutParams(-1, dp(25)))
         status = text("Cloudflare AI • Pronto para conversar", 14f, muted)
         val responseScroll = ScrollView(this).apply {
             isFillViewport = true
