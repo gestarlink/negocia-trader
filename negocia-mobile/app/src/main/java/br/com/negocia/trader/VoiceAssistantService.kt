@@ -167,6 +167,54 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             } else say("Não encontrei o WhatsApp.")
             return
         }
+        val opening = Regex("\\b(abra|abr|abrir|abre|inicie|iniciar|execute|executar)\\b").containsMatchIn(normalized)
+        if (opening && (normalized.contains("chrome") || normalized.contains("navegador") ||
+                normalized.contains("chatgpt"))) {
+            val isChat = normalized.contains("chatgpt")
+            val pkg = if (isChat) "com.openai.chatgpt" else "com.android.chrome"
+            val app = packageManager.getLaunchIntentForPackage(pkg)
+            if (app != null) {
+                try {
+                    app.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(app)
+                    say(if (isChat) "Abri o ChatGPT." else "Abri o Chrome.")
+                } catch (_: Exception) { say("Não consegui abrir o aplicativo.") }
+            } else if (isChat) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://chatgpt.com"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    say("Abri o ChatGPT no navegador.")
+                } catch (_: Exception) { say("Não consegui abrir o ChatGPT.") }
+            } else say("Não encontrei o Chrome instalado.")
+            return
+        }
+        if (Regex("\\b(pesquise|pesquisar|procure|buscar|busque)\\b").containsMatchIn(normalized) &&
+            (normalized.contains("google") || normalized.contains("internet"))) {
+            val query = command.replace(Regex("(?i)^(pesquise|pesquisar|procure|buscar|busque)\\s+(no |na |pelo )?(google|internet)\\s*(por |sobre )?"), "").trim()
+            if (query.isNotBlank()) {
+                try {
+                    val url = "https://www.google.com/search?q=" +
+                        java.net.URLEncoder.encode(query, "UTF-8")
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    say("Pesquisando no Google.")
+                } catch (_: Exception) { say("Não consegui iniciar a pesquisa.") }
+            } else say("O que você deseja pesquisar?")
+            return
+        }
+        if (normalized.contains("tela inicial") || normalized.contains("voltar para inicio")) {
+            try {
+                startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                say("Voltei para a tela inicial.")
+            } catch (_: Exception) { say("Não consegui voltar à tela inicial.") }
+            return
+        }
+        if (Regex("\\b(feche|fechar|encerre)\\b").containsMatchIn(normalized) &&
+            (normalized.contains("whatsapp") || normalized.contains("chrome") || normalized.contains("chatgpt"))) {
+            say("O Android não permite encerrar outro aplicativo diretamente. Posso voltar à tela inicial.")
+            return
+        }
         processing = true
         recognizer?.cancel()
         listening = false
