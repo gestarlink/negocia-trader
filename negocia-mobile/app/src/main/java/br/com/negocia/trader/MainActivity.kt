@@ -201,13 +201,14 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             status.text = "Reconhecimento local indisponível neste aparelho. Use o microfone."
             return
         }
+        startForegroundService(Intent(this, VoiceAssistantService::class.java).setAction(VoiceAssistantService.START))
         wakeMode = true
         wakeToggle.text = "Desativar conversa"
         orb.mode = 1
-        status.text = "Aguardando Léo ou Leonan..."
-        startWake()
+        status.text = "Leonan ativo em segundo plano. Veja a notificação permanente."
     }
     private fun stopWake() {
+        stopService(Intent(this, VoiceAssistantService::class.java))
         wakeMode = false
         awaitingQuestion = false
         followUpUntil = 0L
@@ -319,7 +320,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     override fun onResume() {
         super.onResume()
         foreground = true
-        if (wakeMode) scheduleWake()
+        wakeMode = VoiceAssistantService.enabled
+        wakeToggle.text = if (wakeMode) "Desativar conversa" else "Ativar escuta: Léo ou Leonan"
         if (speechReady) onInit(TextToSpeech.SUCCESS)
     }
     override fun onPause() {
@@ -462,7 +464,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun speak(message: String) {
         if (speechReady) {
-            val spoken = message.replace(Regex("\\btrader\\b", RegexOption.IGNORE_CASE), "trêider")
+            val spoken = message.replace(Regex("\\bJay\\b", RegexOption.IGNORE_CASE), "Djei")
+                .replace(Regex("\\btrader\\b", RegexOption.IGNORE_CASE), "trêider")
             tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "nia_reply")
         }
     }
