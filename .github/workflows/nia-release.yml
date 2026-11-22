@@ -59,13 +59,13 @@ jobs:
       - name: Upload signed APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nia-v1.0.0-signed-apk
+          name: nia-v1.1.0-signed-apk
           path: negocia-mobile/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.version || 'v1.0.0' }}
+          TAG: ${{ inputs.version || 'v1.1.0' }}
         run: |
           APK="negocia-mobile/app/build/outputs/apk/release/app-release.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
