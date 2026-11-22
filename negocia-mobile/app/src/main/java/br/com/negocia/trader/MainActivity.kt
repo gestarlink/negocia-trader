@@ -12,6 +12,10 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.animation.ValueAnimator
+import android.media.audiofx.Visualizer
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -44,6 +48,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private val conversation = ArrayDeque<Pair<String, String>>()
     private var followUpUntil = 0L
     private lateinit var wakeToggle: Button
+    private lateinit var orb: VoiceOrb
+    private var meter: Visualizer? = null
     private val restart = Runnable { startWake() }
     private val endpoint = "https://negocia-trader-ai.gestarlink.workers.dev"
     private lateinit var status: TextView
@@ -79,21 +85,15 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(text("NIA   •   NEGOCIA TRADER", 16f).apply {
             setTypeface(null, Typeface.BOLD)
         }, LinearLayout.LayoutParams(-1, dp(56)))
-        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 0.35f))
-        val mic = Button(this).apply {
-            text = "🎙"
-            textSize = 50f
-            setTextColor(Color.WHITE)
-            background = shape(blue, 100)
-            contentDescription = "Falar com Leonan"
-            setOnClickListener { listen() }
-        }
-        root.addView(mic, LinearLayout.LayoutParams(dp(164), dp(164)))
-        root.addView(text("Olá, sou Leonan", 24f).apply {
-            setTypeface(null, Typeface.BOLD)
-        }, LinearLayout.LayoutParams(-1, dp(66)))
-        root.addView(text("Toque no microfone para conversar comigo", 14f, muted),
-            LinearLayout.LayoutParams(-1, dp(44)))
+        root.addView(View(this), LinearLayout.LayoutParams(1, 0, 0.2f))
+        orb = VoiceOrb()
+        orb.contentDescription = "Conversar com Leonan"
+        orb.setOnClickListener { if (wakeMode) stopWake() else enableWake() }
+        root.addView(orb, LinearLayout.LayoutParams(dp(225), dp(225)))
+        root.addView(text("LEONAN", 28f).apply { setTypeface(null, Typeface.BOLD) },
+            LinearLayout.LayoutParams(-1, dp(65)))
+        root.addView(text("Seu assistente inteligente", 14f, muted),
+            LinearLayout.LayoutParams(-1, dp(42)))
         status = text("Cloudflare AI • Pronto para conversar", 14f, muted)
         val responseScroll = ScrollView(this).apply {
             isFillViewport = true
@@ -105,28 +105,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setOnClickListener { if (wakeMode) stopWake() else enableWake() }
         }
         root.addView(wakeToggle, LinearLayout.LayoutParams(-1, dp(56)))
-        val voiceSettings = Button(this).apply {
-            text = "Configurar voz offline Razo"
-            setOnClickListener {
-                try {
-                    startActivity(Intent("com.android.settings.TTS_SETTINGS"))
-                } catch (_: Exception) {
-                    status.text = "Abra Configurações > Idioma > Conversão de texto em voz e selecione o mecanismo com Razo."
-                }
-            }
-        }
-        root.addView(voiceSettings, LinearLayout.LayoutParams(-1, dp(50)))
-        val voiceTest = Button(this).apply {
-            text = "Testar voz Faber / HayaiTTS"
-            setOnClickListener {
-                initializeVoiceEngine()
-                handler.postDelayed({
-                    if (speechReady) speak("Olá! Sou Leonan. Estou testando a voz Faber no NegocIA Trader.")
-                    else status.text = "Aguardando inicialização da voz. " + engineName
-                }, 1600L)
-            }
-        }
-        root.addView(voiceTest, LinearLayout.LayoutParams(-1, dp(50)))
         val update = Button(this).apply { text = "Verificar atualizações" }
         val updater = UpdateHelper(this)
         update.setOnClickListener {
@@ -181,7 +159,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             return
         }
         wakeMode = true
-        wakeToggle.text = "Desativar escuta"
+        wakeToggle.text = "Desativar conversa"
+        orb.mode = 1
         status.text = "Aguardando Léo ou Leonan..."
         startWake()
     }
@@ -193,11 +172,12 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         recognizer?.cancel()
         recognizer?.destroy()
         recognizer = null
-        wakeToggle.text = "Ativar escuta: Léo ou Leonan"
+        wakeToggle.text = "Ativar conversa por voz"
+        orb.mode = 0
     }
     private fun scheduleWake() {
         handler.removeCallbacks(restart)
-        if (wakeMode && foreground && !busy && !speaking) handler.postDelayed(restart, 900L)
+        if (wakeMode && foreground && !busy && !speaking) handler.postDelayed(restart, 200L)
     }
     private fun startWake() {
         if (!wakeMode || !foreground || busy || speaking) return
@@ -208,7 +188,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onRmsChanged(rmsdB: Float) { orb.level = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f) }
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {}
                 override fun onPartialResults(partialResults: Bundle?) {}
@@ -216,7 +196,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                     val phrase = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     val normalized = java.text.Normalizer.normalize(phrase.lowercase(Locale.ROOT),
                         java.text.Normalizer.Form.NFD).replace(Regex("[\\p{Mn}]"), "")
-                    val match = Regex("\\b(leonan|leo)\\b").find(normalized)
+                    val match = Regex("\\b(leonan|leonam|leona|leo)\\b").find(normalized)
                     if (match != null) {
                         val command = phrase.substring(match.range.last + 1).trim(' ', ',', ':', '?', '!')
                         if (command.isNotBlank()) {
@@ -281,10 +261,76 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             if (::status.isInitialized) status.text = voiceNotice
             tts?.setSpeechRate(0.96f)
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) { speaking = true }
-                override fun onDone(utteranceId: String?) { handler.post { speaking = false; if (awaitingQuestion) followUpUntil = System.currentTimeMillis() + 45000L; scheduleWake() } }
-                override fun onError(utteranceId: String?) { handler.post { speaking = false; scheduleWake() } }
+                override fun onStart(utteranceId: String?) { handler.post { speaking = true; orb.mode = 3; startMeter() } }
+                override fun onDone(utteranceId: String?) { handler.post { stopMeter(); speaking = false; orb.mode = if (wakeMode) 1 else 0; if (awaitingQuestion) followUpUntil = System.currentTimeMillis() + 45000L; scheduleWake() } }
+                override fun onError(utteranceId: String?) { handler.post { stopMeter(); speaking = false; orb.mode = if (wakeMode) 1 else 0; scheduleWake() } }
             })
+        }
+    }
+
+    private fun startMeter() {
+        stopMeter()
+        try {
+            meter = Visualizer(0).apply {
+                captureSize = Visualizer.getCaptureSizeRange()[0]
+                setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                    override fun onWaveFormDataCapture(v: Visualizer?, data: ByteArray?, rate: Int) {
+                        if (data != null && data.isNotEmpty()) {
+                            val value = data.map { kotlin.math.abs(it.toInt()) }.average().toFloat() / 80f
+                            handler.post { if (speaking) orb.level = value.coerceIn(0f, 1f) }
+                        }
+                    }
+                    override fun onFftDataCapture(v: Visualizer?, data: ByteArray?, rate: Int) {}
+                }, Visualizer.getMaxCaptureRate() / 2, true, false)
+                enabled = true
+            }
+        } catch (_: Exception) { stopMeter() }
+    }
+    private fun stopMeter() {
+        try { meter?.enabled = false; meter?.release() } catch (_: Exception) {}
+        meter = null
+    }
+
+    private inner class VoiceOrb : View(this@MainActivity) {
+        var mode = 0
+        var level = 0f
+        private var phase = 0f
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val animation = ValueAnimator.ofFloat(0f, 6.28318f).apply {
+            duration = 1600L
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { phase = it.animatedValue as Float; invalidate() }
+            start()
+        }
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val cx = width / 2f
+            val cy = height / 2f
+            val base = minOf(width, height) * 0.28f
+            val energy = if (mode == 3) maxOf(level, 0.15f) else if (mode == 1) level else 0.06f
+            for (ring in 3 downTo 0) {
+                val radius = base + ring * dp(12) + energy * dp(24) +
+                    kotlin.math.sin(phase + ring).toFloat() * dp(3)
+                paint.color = Color.argb(if (ring == 0) 240 else 45, 48, 145, 245)
+                paint.style = if (ring == 0) Paint.Style.FILL else Paint.Style.STROKE
+                paint.strokeWidth = dp(3).toFloat()
+                canvas.drawCircle(cx, cy, radius, paint)
+            }
+            paint.style = Paint.Style.FILL
+            paint.color = Color.WHITE
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = dp(13).toFloat()
+            paint.typeface = Typeface.DEFAULT_BOLD
+            canvas.drawText(when (mode) {
+                1 -> "OUVINDO"
+                2 -> "PENSANDO"
+                3 -> "FALANDO"
+                else -> "TOQUE PARA FALAR"
+            }, cx, cy + dp(4), paint)
+        }
+        override fun onDetachedFromWindow() {
+            animation.cancel()
+            super.onDetachedFromWindow()
         }
     }
 
@@ -294,6 +340,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun askLeonan(message: String) {
         busy = true
+        orb.mode = 2
         handler.removeCallbacks(restart)
         recognizer?.cancel()
         val token = prototypeCode
@@ -359,6 +406,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         handler.removeCallbacks(restart)
         recognizer?.destroy()
         tts?.stop()
+        stopMeter()
         tts?.shutdown()
         super.onDestroy()
     }
