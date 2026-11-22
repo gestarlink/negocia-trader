@@ -547,6 +547,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     private fun startChartSharing() {
+        if (VoiceAssistantService.enabled) {
+            stopWake()
+            status.text = "Escuta geral pausada para evitar conflito de microfone com o acompanhamento do gráfico."
+        }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), permissionRequest)
             status.text = "Permita o microfone e toque novamente em Acompanhar gráfico."
