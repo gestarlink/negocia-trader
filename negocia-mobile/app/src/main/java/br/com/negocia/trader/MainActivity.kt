@@ -241,7 +241,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                         } else {
                             awaitingQuestion = true
                             followUpUntil = System.currentTimeMillis() + 45000L
-                            status.text = "Oi Jay, estou ouvindo."
+                            status.text = "Oi Jay, o que você deseja?"
                             speak("Oi Jay, o que você deseja?")
                         }
                     } else if (awaitingQuestion && System.currentTimeMillis() < followUpUntil && phrase.isNotBlank()) {
@@ -290,9 +290,15 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
                 it.locale.language == "pt" &&
                     !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
             }.orEmpty()
-            val chosen = available.firstOrNull { it.name.contains("faber", ignoreCase = true) }
-                ?: available.firstOrNull { it.name.contains("razo", ignoreCase = true) }
-                ?: available.firstOrNull { it.locale.country == "BR" }
+            // Prefer a Brazilian Portuguese voice installed in the selected TTS engine.
+            val chosen = available.firstOrNull {
+                it.locale.country.equals("BR", ignoreCase = true) &&
+                    it.name.contains("faber", ignoreCase = true)
+            } ?: available.firstOrNull {
+                it.locale.country.equals("BR", ignoreCase = true) &&
+                    it.name.contains("razo", ignoreCase = true)
+            } ?: available.firstOrNull { it.locale.country.equals("BR", ignoreCase = true) }
+                ?: available.firstOrNull()
             chosen?.let { tts?.voice = it }
             voiceNotice = "Motor: $engineName | Voz: ${tts?.voice?.name ?: "não encontrada"}"
             if (::status.isInitialized) status.text = voiceNotice
