@@ -14,6 +14,11 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.LinearGradient
+import android.graphics.RadialGradient
+import android.graphics.Shader
+import android.graphics.Path
+import android.graphics.BlurMaskFilter
 import android.animation.ValueAnimator
 import android.media.audiofx.Visualizer
 import android.graphics.Typeface
@@ -82,18 +87,18 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setBackgroundColor(bg)
             setPadding(dp(24), dp(28), dp(24), dp(46))
         }
-        root.addView(text("NIA   •   NEGOCIA TRADER", 16f).apply {
+        root.addView(text("NIA", 16f).apply {
             setTypeface(null, Typeface.BOLD)
         }, LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(View(this), LinearLayout.LayoutParams(1, 0, 0.2f))
         orb = VoiceOrb()
         orb.contentDescription = "Conversar com Leonan"
         orb.setOnClickListener { if (wakeMode) stopWake() else enableWake() }
-        root.addView(orb, LinearLayout.LayoutParams(dp(225), dp(225)))
-        root.addView(text("LEONAN", 28f).apply { setTypeface(null, Typeface.BOLD) },
-            LinearLayout.LayoutParams(-1, dp(65)))
-        root.addView(text("Seu assistente inteligente", 14f, muted),
-            LinearLayout.LayoutParams(-1, dp(42)))
+        root.addView(orb, LinearLayout.LayoutParams(dp(280), dp(280)))
+        root.addView(text("Leonan", 25f).apply { setTypeface(null, Typeface.BOLD) },
+            LinearLayout.LayoutParams(-1, dp(54)))
+        root.addView(text("Sua inteligência por voz", 13f, muted),
+            LinearLayout.LayoutParams(-1, dp(34)))
         status = text("Cloudflare AI • Pronto para conversar", 14f, muted)
         val responseScroll = ScrollView(this).apply {
             isFillViewport = true
@@ -105,7 +110,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setOnClickListener { if (wakeMode) stopWake() else enableWake() }
         }
         root.addView(wakeToggle, LinearLayout.LayoutParams(-1, dp(56)))
-        val update = Button(this).apply { text = "Verificar atualizações" }
+        val update = Button(this).apply { text = "Atualizações" }
         val updater = UpdateHelper(this)
         update.setOnClickListener {
             updater.check({ version, install ->
@@ -293,11 +298,13 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
 
     private inner class VoiceOrb : View(this@MainActivity) {
         var mode = 0
+            set(value) { field = value; invalidate() }
         var level = 0f
+            set(value) { field = value.coerceIn(0f, 1f); invalidate() }
         private var phase = 0f
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val animation = ValueAnimator.ofFloat(0f, 6.28318f).apply {
-            duration = 1600L
+        private val animation = ValueAnimator.ofFloat(0f, 6.283185f).apply {
+            duration = 2400L
             repeatCount = ValueAnimator.INFINITE
             addUpdateListener { phase = it.animatedValue as Float; invalidate() }
             start()
@@ -306,18 +313,60 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             super.onDraw(canvas)
             val cx = width / 2f
             val cy = height / 2f
-            val base = minOf(width, height) * 0.28f
-            val energy = if (mode == 3) maxOf(level, 0.15f) else if (mode == 1) level else 0.06f
-            for (ring in 3 downTo 0) {
-                val radius = base + ring * dp(12) + energy * dp(24) +
-                    kotlin.math.sin(phase + ring).toFloat() * dp(3)
-                paint.color = Color.argb(if (ring == 0) 175 else 65, 48 + ring * 8, 145 + ring * 4, 245)
-                paint.style = if (ring == 0) Paint.Style.FILL else Paint.Style.STROKE
-                paint.strokeWidth = dp(3).toFloat()
-                canvas.drawCircle(cx, cy, radius, paint)
+            val base = minOf(width, height) * 0.405f
+            val pulse = when (mode) {
+                1 -> level * 0.10f
+                2 -> 0.025f
+                3 -> maxOf(0.10f, level) * 0.14f
+                else -> 0.015f
             }
-            // Centro limpo: a aura visual substitui o texto de toque.
-
+            val r = base * (1f + pulse + 0.013f * kotlin.math.sin(phase).toFloat())
+            val outer = RadialGradient(cx, cy, r * 1.18f,
+                intArrayOf(0x003B9EFF, 0x124BBDFF, 0x004BBDFF),
+                floatArrayOf(0f, 0.77f, 1f), Shader.TileMode.CLAMP)
+            paint.shader = outer
+            paint.style = Paint.Style.FILL
+            canvas.drawCircle(cx, cy, r * 1.18f, paint)
+            paint.shader = null
+            val save = canvas.save()
+            val sphere = Path().apply { addCircle(cx, cy, r, Path.Direction.CW) }
+            canvas.clipPath(sphere)
+            paint.shader = LinearGradient(cx, cy - r, cx, cy + r,
+                intArrayOf(0xFFE8FFFF.toInt(), 0xFFD9F7FF.toInt(),
+                    0xFF7BD8FF.toInt(), 0xFF0B83F9.toInt(), 0xFF0060E6.toInt()),
+                floatArrayOf(0f, 0.28f, 0.50f, 0.77f, 1f), Shader.TileMode.CLAMP)
+            canvas.drawCircle(cx, cy, r, paint)
+            paint.shader = null
+            for (layer in 0..3) {
+                val path = Path()
+                val offset = layer * r * 0.15f
+                val middle = cy + r * (0.10f + layer * 0.14f) - offset
+                val amplitude = r * (0.12f + pulse * 1.6f)
+                path.moveTo(cx-r*1.5f, cy+r*1.5f)
+                path.lineTo(cx-r*1.5f, middle)
+                for (i in 0..80) {
+                    val x = cx-r*1.5f + i*r*3f/80f
+                    val theta = (x-cx)/r * 2.5f + phase * (if(layer%2==0) 1f else -0.8f) + layer
+                    val y = middle + kotlin.math.sin(theta).toFloat()*amplitude +
+                        kotlin.math.sin(theta*1.7f+layer).toFloat()*amplitude*0.26f
+                    path.lineTo(x,y)
+                }
+                path.lineTo(cx+r*1.5f,cy+r*1.5f)
+                path.close()
+                paint.color = when(layer) {
+                    0 -> 0x3383EDFF
+                    1 -> 0x5573CFFF
+                    2 -> 0x7753B8FF
+                    else -> 0x99529CFF.toInt()
+                }
+                canvas.drawPath(path,paint)
+            }
+            paint.shader = RadialGradient(cx-r*0.32f,cy-r*0.62f,r*1.25f,
+                intArrayOf(0x66FFFFFF,0x12FFFFFF,0x00FFFFFF),
+                floatArrayOf(0f,0.52f,1f),Shader.TileMode.CLAMP)
+            canvas.drawCircle(cx,cy,r,paint)
+            paint.shader = null
+            canvas.restoreToCount(save)
         }
         override fun onDetachedFromWindow() {
             animation.cancel()
