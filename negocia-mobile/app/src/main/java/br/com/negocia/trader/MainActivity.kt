@@ -52,6 +52,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var speechReady = false
     private var voiceNotice = ""
+    private var engineName = "inicializando"
+    private var requestedEngine: String? = null
     private val bg = Color.rgb(16, 24, 39)
     private val blue = Color.rgb(45, 119, 235)
     private val muted = Color.rgb(169, 187, 209)
@@ -67,7 +69,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
-        tts = TextToSpeech(this, this)
+        initializeVoiceEngine()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -114,6 +116,17 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }
         }
         root.addView(voiceSettings, LinearLayout.LayoutParams(-1, dp(50)))
+        val voiceTest = Button(this).apply {
+            text = "Testar voz Faber / HayaiTTS"
+            setOnClickListener {
+                initializeVoiceEngine()
+                handler.postDelayed({
+                    if (speechReady) speak("Olá! Sou Leonan. Estou testando a voz Faber no NegocIA Trader.")
+                    else status.text = "Aguardando inicialização da voz. " + engineName
+                }, 1600L)
+            }
+        }
+        root.addView(voiceTest, LinearLayout.LayoutParams(-1, dp(50)))
         val update = Button(this).apply { text = "Verificar atualizações" }
         val updater = UpdateHelper(this)
         update.setOnClickListener {
@@ -128,6 +141,23 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             update.text = "Atualizar para versão $version"
             update.setOnClickListener { install() }
         })
+    }
+
+    private fun initializeVoiceEngine() {
+        tts?.stop()
+        tts?.shutdown()
+        speechReady = false
+        val installed = packageManager.queryIntentServices(
+            Intent("android.intent.action.TTS_SERVICE"), 0
+        )
+        val hayai = installed.firstOrNull {
+            it.serviceInfo.packageName.contains("hayai", ignoreCase = true) ||
+                it.loadLabel(packageManager).toString().contains("hayai", ignoreCase = true)
+        }
+        requestedEngine = hayai?.serviceInfo?.packageName
+        tts = if (requestedEngine != null)
+            TextToSpeech(this, this, requestedEngine)
+        else TextToSpeech(this, this)
     }
 
     private fun listen() {
@@ -238,15 +268,16 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         speechReady = result == TextToSpeech.SUCCESS
         if (speechReady) {
             tts?.language = Locale.forLanguageTag("pt-BR")
+            engineName = tts?.defaultEngine ?: "desconhecido"
             val available = tts?.voices?.filter {
-                it.locale.language == "pt" && it.locale.country == "BR" &&
+                it.locale.language == "pt" &&
                     !it.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
             }.orEmpty()
-            val razo = available.firstOrNull { it.name.contains("razo", ignoreCase = true) }
-            val chosen = razo ?: available.maxByOrNull { it.quality }
+            val chosen = available.firstOrNull { it.name.contains("faber", ignoreCase = true) }
+                ?: available.firstOrNull { it.name.contains("razo", ignoreCase = true) }
+                ?: available.firstOrNull { it.locale.country == "BR" }
             chosen?.let { tts?.voice = it }
-            voiceNotice = if (razo != null) "Voz Razo selecionada." else
-                "Razo não está disponível no mecanismo de voz atual. Instale a voz no HayaiTTS e selecione esse mecanismo nas configurações Android."
+            voiceNotice = "Motor: $engineName | Voz: ${tts?.voice?.name ?: "não encontrada"}"
             if (::status.isInitialized) status.text = voiceNotice
             tts?.setSpeechRate(0.96f)
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
