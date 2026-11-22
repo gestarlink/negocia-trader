@@ -45,6 +45,7 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
     private var listening = false
     private var active = false
     private var analyzing = false
+    private var retryCount = 0
     private val loop = Runnable { listen() }
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() { main.post { stopSelf() } }
@@ -64,11 +65,15 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
         val stop = PendingIntent.getService(this, 8,
             Intent(this, ChartCaptureService::class.java).setAction(STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val capture = PendingIntent.getService(this, 9,
+            Intent(this, ChartCaptureService::class.java).setAction(CAPTURE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setContentTitle("NIA • Gráfico compartilhado")
             .setContentText(message)
             .setOngoing(true)
+            .addAction(android.R.drawable.ic_menu_camera, "Analisar gráfico", capture)
             .addAction(android.R.drawable.ic_delete, "Parar", stop)
             .build()
     }
@@ -80,7 +85,7 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             STOP -> { stopSelf(); return START_NOT_STICKY }
-            CAPTURE -> { capture(); return START_NOT_STICKY }
+            CAPTURE -> { if (active) capture(); return START_NOT_STICKY }
             START -> {
                 if (active) return START_NOT_STICKY
                 val result = intent.getIntExtra(RESULT, Activity.RESULT_CANCELED)
@@ -117,7 +122,7 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun listen() {
-        if (!active || speaking || listening || Build.VERSION.SDK_INT < 31 ||
+        if (!active || speaking || analyzing || listening || Build.VERSION.SDK_INT < 31 ||
             !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) return
         try {
             recognizer?.destroy()
@@ -132,6 +137,7 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
                 override fun onEvent(eventType: Int, params: Bundle?) {}
                 override fun onResults(results: Bundle?) {
                     listening = false
+                    retryCount = 0
                     val phrase = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull().orEmpty()
                     val norm = Normalizer.normalize(phrase.lowercase(Locale.ROOT), Normalizer.Form.NFD)
@@ -151,7 +157,14 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
                     }
                     retry()
                 }
-                override fun onError(error: Int) { listening = false; retry() }
+                override fun onError(error: Int) {
+                    listening = false
+                    retryCount = (retryCount + 1).coerceAtMost(5)
+                    if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                        error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
+                        update("Escuta indisponível. Use Analisar gráfico na notificação.")
+                    retry()
+                }
             })
             listening = true
             recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -159,12 +172,19 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             })
-        } catch (_: Exception) { listening = false; retry() }
+        } catch (_: Exception) {
+            listening = false
+            retryCount = (retryCount + 1).coerceAtMost(5)
+            retry()
+        }
     }
 
     private fun retry() {
         main.removeCallbacks(loop)
-        if (active && !speaking) main.postDelayed(loop, 650)
+        if (active && !speaking && !analyzing) {
+            val delay = if (retryCount == 0) 1800L else (3000L * retryCount).coerceAtMost(15000L)
+            main.postDelayed(loop, delay)
+        }
     }
 
     private fun say(text: String) {
@@ -175,7 +195,10 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun capture() {
-        if (analyzing) { say("Ainda estou analisando a captura anterior."); return }
+        if (analyzing) { update("Aguarde: análise em andamento"); return }
+        recognizer?.cancel()
+        listening = false
+        main.removeCallbacks(loop)
         val image = reader?.acquireLatestImage()
         if (image == null) {
             update("Aguardando próximo quadro da tela")
@@ -206,6 +229,7 @@ class ChartCaptureService : Service(), TextToSpeech.OnInitListener {
 
     private fun analyze(jpeg: ByteArray) {
         analyzing = true
+        main.removeCallbacks(loop)
         update("Leonan está interpretando o gráfico...")
         thread {
             var connection: HttpURLConnection? = null
