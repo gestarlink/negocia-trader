@@ -43,6 +43,7 @@ import org.json.JSONObject
 import kotlin.concurrent.thread
 
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
+    companion object { const val NIA_ACCESS_TOKEN = "22AbdvvF00dmCNe_GQuuB-_Gb7YwM2PO" }
     private val speechRequest = 1200
     private val chartRequest = 1202
     private val permissionRequest = 3001
@@ -63,7 +64,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var status: TextView
     private lateinit var transcriptPanel: ScrollView
     private var transcriptVisible = false
-    private val prototypeCode = "22AbdvvF00dmCNe_GQuuB-_Gb7YwM2PO"
+    private val prototypeCode = NIA_ACCESS_TOKEN
     
     private var tts: TextToSpeech? = null
     private var speechReady = false
