@@ -9,6 +9,8 @@ import android.speech.SpeechRecognizer
 import android.speech.RecognitionListener
 import android.speech.tts.UtteranceProgressListener
 import android.app.Activity
+import android.media.projection.MediaProjectionManager
+import android.content.Context
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
@@ -42,6 +44,7 @@ import kotlin.concurrent.thread
 
 class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private val speechRequest = 1200
+    private val chartRequest = 1202
     private val permissionRequest = 3001
     private var recognizer: SpeechRecognizer? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -123,6 +126,20 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setOnClickListener { if (wakeMode) stopWake() else enableWake() }
         }
         root.addView(wakeToggle, LinearLayout.LayoutParams(-1, dp(56)))
+        val chartButton = Button(this).apply {
+            text = "Acompanhar gráfico no Chrome"
+            setOnClickListener { startChartSharing() }
+        }
+        root.addView(chartButton, LinearLayout.LayoutParams(-1, dp(54)))
+        val stopChart = Button(this).apply {
+            text = "Parar acompanhamento"
+            setOnClickListener {
+                startService(Intent(this@MainActivity, ChartCaptureService::class.java)
+                    .setAction(ChartCaptureService.STOP))
+                status.text = "Acompanhamento encerrado."
+            }
+        }
+        root.addView(stopChart, LinearLayout.LayoutParams(-1, dp(48)))
         val update = Button(this).apply { text = "Atualizações" }
         val updater = UpdateHelper(this)
         update.setOnClickListener {
@@ -470,9 +487,29 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun startChartSharing() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), permissionRequest)
+            status.text = "Permita o microfone e toque novamente em Acompanhar gráfico."
+            return
+        }
+        val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        startActivityForResult(manager.createScreenCaptureIntent(), chartRequest)
+    }
+
     @Deprecated("Compatibility with Android speech prototype")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == chartRequest && resultCode == RESULT_OK && data != null) {
+            stopWake()
+            val service = Intent(this, ChartCaptureService::class.java)
+                .setAction(ChartCaptureService.START)
+                .putExtra(ChartCaptureService.RESULT, resultCode)
+                .putExtra(ChartCaptureService.DATA, data)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
+            status.text = "Compartilhamento autorizado. Abra o Chrome e diga: Léo, capture o gráfico."
+            return
+        }
         if (requestCode == speechRequest && resultCode == RESULT_OK) {
             val heard = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() ?: return
             askLeonan(heard)
