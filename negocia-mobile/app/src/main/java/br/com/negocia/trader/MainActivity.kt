@@ -60,6 +60,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var orb: VoiceOrb
     private var meter: Visualizer? = null
     private val restart = Runnable { startWake() }
+    private var wakeErrorCount = 0
+    private var wakeSessionActive = false
+    private var lastWakeAt = 0L
+    private var lastWakeHandledAt = 0L
     private val endpoint = "https://negocia-trader-ai.gestarlink.workers.dev"
     private lateinit var status: TextView
     private lateinit var transcriptPanel: ScrollView
@@ -208,68 +212,101 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         recognizer?.cancel()
         recognizer?.destroy()
         recognizer = null
+        wakeSessionActive = false
+        wakeErrorCount = 0
         wakeToggle.text = "Ativar conversa por voz"
         orb.mode = 0
     }
-    private fun scheduleWake() {
+    private fun scheduleWake(delayMs: Long = 850L) {
         handler.removeCallbacks(restart)
-        if (wakeMode && foreground && !busy && !speaking) handler.postDelayed(restart, 200L)
+        if (wakeMode && foreground && !busy && !speaking) {
+            handler.postDelayed(restart, delayMs)
+        }
     }
+
+    private fun normalizedSpeech(value: String): String =
+        java.text.Normalizer.normalize(value.lowercase(Locale.ROOT),
+            java.text.Normalizer.Form.NFD).replace(Regex("[\\p{Mn}]"), "")
+
+    private fun handleWakeSpeech(alternatives: List<String>) {
+        val wakeRegex = Regex("\\b(leonan|leonam|leona|leo)\\b")
+        val phrase = alternatives.firstOrNull { wakeRegex.containsMatchIn(normalizedSpeech(it)) }
+            ?: alternatives.firstOrNull().orEmpty()
+        val match = wakeRegex.find(normalizedSpeech(phrase))
+        val now = System.currentTimeMillis()
+        if (match != null) {
+            if (now - lastWakeHandledAt < 1500L) return
+            lastWakeHandledAt = now
+            val command = phrase.substring(match.range.last + 1).trim(' ', ',', ':', '?', '!')
+            if (command.isNotBlank()) {
+                awaitingQuestion = false
+                askLeonan(command)
+            } else {
+                awaitingQuestion = true
+                followUpUntil = now + 20000L
+                status.text = "Oi Jay, o que você deseja?"
+                speak("Oi Jay, o que você deseja?")
+            }
+        } else if (awaitingQuestion && now < followUpUntil && phrase.isNotBlank()) {
+            awaitingQuestion = false
+            askLeonan(phrase)
+        }
+        if (now >= followUpUntil) awaitingQuestion = false
+    }
+
     private fun startWake() {
-        if (!wakeMode || !foreground || busy || speaking) return
-        recognizer?.destroy()
-        recognizer = null
+        if (!wakeMode || !foreground || busy || speaking || wakeSessionActive) return
+        if (System.currentTimeMillis() - lastWakeAt < 650L) {
+            scheduleWake(650L)
+            return
+        }
         try {
-            recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-            recognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) { orb.level = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f) }
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onPartialResults(partialResults: Bundle?) {}
-                override fun onResults(results: Bundle?) {
-                    val alternatives = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-                    val phrase = alternatives.firstOrNull { candidate ->
-                        val clean = java.text.Normalizer.normalize(candidate.lowercase(Locale.ROOT), java.text.Normalizer.Form.NFD)
-                            .replace(Regex("[\\p{Mn}]"), "")
-                        Regex("\\b(leonan|leonam|leona|leo)\\b").containsMatchIn(clean)
-                    } ?: alternatives.firstOrNull().orEmpty()
-                    val normalized = java.text.Normalizer.normalize(phrase.lowercase(Locale.ROOT),
-                        java.text.Normalizer.Form.NFD).replace(Regex("[\\p{Mn}]"), "")
-                    val match = Regex("\\b(leonan|leonam|leona|leo)\\b").find(normalized)
-                    if (match != null) {
-                        val command = phrase.substring(match.range.last + 1).trim(' ', ',', ':', '?', '!')
-                        if (command.isNotBlank()) {
-                            awaitingQuestion = false
-                            askLeonan(command)
-                        } else {
-                            awaitingQuestion = true
-                            followUpUntil = System.currentTimeMillis() + 45000L
-                            status.text = "Oi Jay, o que você deseja?"
-                            speak("Oi Jay, o que você deseja?")
-                        }
-                    } else if (awaitingQuestion && System.currentTimeMillis() < followUpUntil && phrase.isNotBlank()) {
-                        awaitingQuestion = false
-                        askLeonan(phrase)
+            if (recognizer == null) {
+                recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+                recognizer?.setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle?) {}
+                    override fun onBeginningOfSpeech() { wakeErrorCount = 0 }
+                    override fun onRmsChanged(rmsdB: Float) {
+                        orb.level = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
                     }
-                    if (System.currentTimeMillis() >= followUpUntil) awaitingQuestion = false
-                    scheduleWake()
-                }
-                override fun onError(error: Int) { scheduleWake() }
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+                    override fun onEndOfSpeech() {}
+                    override fun onPartialResults(partialResults: Bundle?) {}
+                    override fun onResults(results: Bundle?) {
+                        wakeSessionActive = false
+                        wakeErrorCount = 0
+                        handleWakeSpeech(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty())
+                        scheduleWake()
+                    }
+                    override fun onError(error: Int) {
+                        wakeSessionActive = false
+                        wakeErrorCount = (wakeErrorCount + 1).coerceAtMost(5)
+                        val delay = when (error) {
+                            SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 1100L
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 2200L
+                            else -> (1000L * wakeErrorCount).coerceAtMost(5000L)
+                        }
+                        scheduleWake(delay)
+                    }
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
+                })
+            }
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "pt-BR")
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             }
+            wakeSessionActive = true
+            lastWakeAt = System.currentTimeMillis()
             recognizer?.startListening(intent)
         } catch (_: Exception) {
-            stopWake()
-            status.text = "Não foi possível iniciar a escuta local."
+            wakeSessionActive = false
+            wakeErrorCount = (wakeErrorCount + 1).coerceAtMost(5)
+            scheduleWake(2000L)
+            status.text = "Reconhecimento local temporariamente indisponível. Tentando novamente..."
         }
     }
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -286,6 +323,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         foreground = false
         handler.removeCallbacks(restart)
         recognizer?.cancel()
+        wakeSessionActive = false
         super.onPause()
     }
     override fun onInit(result: Int) {
@@ -451,6 +489,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         orb.mode = 2
         handler.removeCallbacks(restart)
         recognizer?.cancel()
+        wakeSessionActive = false
         val token = prototypeCode
         val question = message.take(520)
         val history = conversation.lastOrNull()?.let { (q, answer) ->
@@ -534,6 +573,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         wakeMode = false
         handler.removeCallbacks(restart)
         recognizer?.destroy()
+        recognizer = null
+        wakeSessionActive = false
         tts?.stop()
         stopMeter()
         tts?.shutdown()
