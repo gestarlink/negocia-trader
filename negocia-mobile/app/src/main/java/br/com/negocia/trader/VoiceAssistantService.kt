@@ -152,14 +152,19 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
         speaking = true
         recognizer?.cancel()
         listening = false
-        tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "nia_voice")
+        val result = tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "nia_voice")
+        if (result == TextToSpeech.ERROR) {
+            speaking = false
+            update("Falha na voz. Verifique o motor de fala.")
+            retry()
+        }
     }
     /** Wikipedia's public API provides attributed factual snippets, not Google search results. */
     private fun fetchSearchSummary(query: String) {
         processing = true
         recognizer?.cancel()
         listening = false
-        update("Pesquisa aberta. Consultando fonte pública para leitura...")
+        update("Pesquisando: " + query.take(55))
         thread {
             var conn: HttpURLConnection? = null
             val summary = try {
@@ -167,8 +172,8 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
                     "&gsrsearch=" + java.net.URLEncoder.encode(query, "UTF-8") +
                     "&gsrlimit=2&prop=extracts&exintro=1&explaintext=1&exchars=700&format=json"
                 conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 10000
-                    readTimeout = 12000
+                    connectTimeout = 4000
+                    readTimeout = 5000
                     setRequestProperty("User-Agent", "JAY-Leonan/1.1 (Android voice assistant; informational lookup)")
                 }
                 if (conn!!.responseCode != 200) null else {
@@ -188,6 +193,8 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             finally { conn?.disconnect() }
             main.post {
                 processing = false
+                waiting = true
+                followUpDeadline = System.currentTimeMillis() + 20000L
                 if (summary != null) {
                     lastConversation = "Pesquisa sobre " + query.take(70) + ": " + summary.take(320)
                     say("Abri o Google. Também encontrei uma referência na Wikipédia: " +
@@ -250,6 +257,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
                     startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     lastSearchQuery = query
+                    say("Abri o Google. Vou consultar uma fonte e já te conto o que encontrei.")
                     fetchSearchSummary(query)
                 } catch (_: Exception) { say("Não consegui iniciar a pesquisa.") }
             } else say("O que você deseja pesquisar?")
