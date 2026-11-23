@@ -177,7 +177,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
                     val keys = pages?.keys()
                     val found = mutableListOf<String>()
                     while (keys != null && keys.hasNext() && found.size < 2) {
-                        val page = pages.optJSONObject(keys.next()) ?: continue
+                        val page = pages?.optJSONObject(keys.next()) ?: continue
                         val title = page.optString("title")
                         val excerpt = page.optString("extract").replace(Regex("\\s+"), " ").trim()
                         if (excerpt.isNotBlank()) found.add(title + ": " + excerpt.take(440))
