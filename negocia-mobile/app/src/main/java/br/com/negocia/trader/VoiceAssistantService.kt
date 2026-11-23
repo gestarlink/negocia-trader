@@ -154,6 +154,53 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
         listening = false
         tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "nia_voice")
     }
+    /** Wikipedia's public API provides attributed factual snippets, not Google search results. */
+    private fun fetchSearchSummary(query: String) {
+        processing = true
+        recognizer?.cancel()
+        listening = false
+        update("Pesquisa aberta. Consultando fonte pública para leitura...")
+        thread {
+            var conn: HttpURLConnection? = null
+            val summary = try {
+                val url = "https://pt.wikipedia.org/w/api.php?action=query&generator=search" +
+                    "&gsrsearch=" + java.net.URLEncoder.encode(query, "UTF-8") +
+                    "&gsrlimit=2&prop=extracts&exintro=1&explaintext=1&exchars=700&format=json"
+                conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10000
+                    readTimeout = 12000
+                    setRequestProperty("User-Agent", "JAY-Leonan/1.1 (Android voice assistant; informational lookup)")
+                }
+                if (conn!!.responseCode != 200) null else {
+                    val pages = JSONObject(conn!!.inputStream.bufferedReader().use { it.readText() })
+                        .optJSONObject("query")?.optJSONObject("pages")
+                    val keys = pages?.keys()
+                    val found = mutableListOf<String>()
+                    while (keys != null && keys.hasNext() && found.size < 2) {
+                        val page = pages.optJSONObject(keys.next()) ?: continue
+                        val title = page.optString("title")
+                        val excerpt = page.optString("extract").replace(Regex("\\s+"), " ").trim()
+                        if (excerpt.isNotBlank()) found.add(title + ": " + excerpt.take(440))
+                    }
+                    found.takeIf { it.isNotEmpty() }?.joinToString(". ")
+                }
+            } catch (_: Exception) { null }
+            finally { conn?.disconnect() }
+            main.post {
+                processing = false
+                if (summary != null) {
+                    lastConversation = "Pesquisa sobre " + query.take(70) + ": " + summary.take(320)
+                    say("Abri o Google. Também encontrei uma referência na Wikipédia: " +
+                        summary.take(520) + ". Quer que eu explique melhor?")
+                } else {
+                    say("Abri a pesquisa no Google sobre " + query.take(70) +
+                        ". Ainda não consegui obter um resumo verificável para ler. Você pode ver os resultados no navegador.")
+                }
+                update("Aguardando Léo ou Leonan")
+            }
+        }
+    }
+
     private fun execute(command: String) {
         val normalized = normalize(command)
         if (Regex("\\b(abra|abrir|abre|inicie|iniciar)\\b").containsMatchIn(normalized) &&
@@ -203,8 +250,7 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
                     startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     lastSearchQuery = query
-                    say("Abri a pesquisa sobre " + query.take(70) +
-                        ". Posso explicar o assunto, mas ainda não consigo ler os resultados do navegador automaticamente.")
+                    fetchSearchSummary(query)
                 } catch (_: Exception) { say("Não consegui iniciar a pesquisa.") }
             } else say("O que você deseja pesquisar?")
             return
