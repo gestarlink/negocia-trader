@@ -32,6 +32,8 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
     private var waiting = false
     private var followUpDeadline = 0L
     private var errors = 0
+    private var lastSearchQuery: String? = null
+    private var lastConversation: String? = null
     private val loop = Runnable { listen() }
     private fun normalize(value: String) = Normalizer.normalize(value.lowercase(Locale.ROOT),
         Normalizer.Form.NFD).replace(Regex("[\\p{Mn}]"), "")
@@ -188,18 +190,29 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             } else say("Não encontrei o Chrome instalado.")
             return
         }
-        if (Regex("\\b(pesquise|pesquisar|procure|buscar|busque)\\b").containsMatchIn(normalized) &&
-            (normalized.contains("google") || normalized.contains("internet"))) {
-            val query = command.replace(Regex("(?i)^(pesquise|pesquisar|procure|buscar|busque)\\s+(no |na |pelo )?(google|internet)\\s*(por |sobre )?"), "").trim()
+        val searchRequest = Regex("\\b(pesquise|pesquisar|procure|buscar|busque|pesquisa)\\b")
+            .containsMatchIn(normalized)
+        if (searchRequest && (normalized.contains("google") || normalized.contains("internet"))) {
+            val query = command.replace(
+                Regex("(?i)^(pesquise|pesquisar|procure|buscar|busque|pesquisa)\\s+(no |na |pelo )?(google|internet)\\s*(por |sobre )?"), ""
+            ).trim()
             if (query.isNotBlank()) {
                 try {
                     val url = "https://www.google.com/search?q=" +
                         java.net.URLEncoder.encode(query, "UTF-8")
                     startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    say("Pesquisando no Google.")
+                    lastSearchQuery = query
+                    say("Abri a pesquisa sobre " + query.take(70) +
+                        ". Posso explicar o assunto, mas ainda não consigo ler os resultados do navegador automaticamente.")
                 } catch (_: Exception) { say("Não consegui iniciar a pesquisa.") }
             } else say("O que você deseja pesquisar?")
+            return
+        }
+        if (lastSearchQuery != null &&
+            (normalized.contains("leia") || normalized.contains("ler os resultados") ||
+                normalized.contains("leitura dos resultados"))) {
+            say("Ainda não tenho acesso ao conteúdo da página do Google. Posso explicar o tema, mas não vou fingir que li os resultados.")
             return
         }
         if (normalized.contains("tela inicial") || normalized.contains("voltar para inicio")) {
@@ -228,7 +241,11 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     setRequestProperty("Authorization", "Bearer " + MainActivity.NIA_ACCESS_TOKEN)
                 }
-                val prompt = "Você é Leonan, assistente de voz. Responda em português brasileiro, brevemente. Usuário: " + command.take(520)
+                val prompt = "Você é Leonan, assistente de voz. Responda em português brasileiro, naturalmente e brevemente. " +
+                    "Não afirme ter pesquisado ou lido páginas da internet se não recebeu resultados. " +
+                    (lastSearchQuery?.let { "Tema recente de pesquisa aberta no navegador: " + it.take(110) + ". " } ?: "") +
+                    (lastConversation?.let { "Conversa anterior: " + it.take(180) + ". " } ?: "") +
+                    "Usuário: " + command.take(520)
                 connection!!.outputStream.use { it.write(JSONObject().put("message", prompt).toString().toByteArray()) }
                 if (connection!!.responseCode == 200)
                     JSONObject(connection!!.inputStream.bufferedReader().use { it.readText() })
@@ -238,6 +255,9 @@ class VoiceAssistantService : Service(), TextToSpeech.OnInitListener {
             finally { connection?.disconnect() }
             main.post {
                 processing = false
+                lastConversation = "Usuário: " + command.take(80) + " Leonan: " + reply.take(100)
+                waiting = true
+                followUpDeadline = System.currentTimeMillis() + 45000L
                 update("Aguardando Léo ou Leonan")
                 say(reply)
             }
