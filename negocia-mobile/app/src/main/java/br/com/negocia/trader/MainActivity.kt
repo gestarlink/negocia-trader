@@ -97,15 +97,15 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             setBackgroundColor(bg)
             setPadding(dp(24), dp(28), dp(24), dp(46))
         }
-        root.addView(text("JAY", 16f).apply {
+        root.addView(text("NIA", 16f).apply {
             setTypeface(null, Typeface.BOLD)
         }, LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(View(this), LinearLayout.LayoutParams(1, 0, 0.2f))
         orb = VoiceOrb()
-        orb.contentDescription = "Conversar com JAY"
+        orb.contentDescription = "Conversar com Leonan"
         orb.setOnClickListener { if (wakeMode) stopWake() else enableWake() }
         root.addView(orb, LinearLayout.LayoutParams(dp(280), dp(280)))
-        root.addView(text("JAY", 25f).apply { setTypeface(null, Typeface.BOLD) },
+        root.addView(text("Leonan", 25f).apply { setTypeface(null, Typeface.BOLD) },
             LinearLayout.LayoutParams(-1, dp(54)))
         root.addView(text("Sua inteligência por voz", 13f, muted),
             LinearLayout.LayoutParams(-1, dp(34)))
@@ -130,7 +130,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         root.addView(historyToggle, LinearLayout.LayoutParams(-1, dp(44)))
         root.addView(responseScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         wakeToggle = Button(this).apply {
-            text = "Ativar escuta: AJ"
+            text = "Ativar escuta: Léo ou Leonan"
             setOnClickListener { if (wakeMode) stopWake() else enableWake() }
         }
         root.addView(wakeToggle, LinearLayout.LayoutParams(-1, dp(56)))
@@ -157,11 +157,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             }, true)
         }
         root.addView(update, LinearLayout.LayoutParams(-1, dp(50)))
-        val accessibilityButton = Button(this).apply {
-            text = "Permitir navegação por voz (Acessibilidade)"
-            setOnClickListener { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        }
-        root.addView(accessibilityButton, LinearLayout.LayoutParams(-1, dp(50)))
         setContentView(root)
         updater.check({ version, install ->
             update.text = "Atualizar para versão $version"
@@ -210,7 +205,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         wakeMode = true
         wakeToggle.text = "Desativar conversa"
         orb.mode = 1
-        status.text = "JAY ativo em segundo plano. Veja a notificação permanente."
+        status.text = "Leonan ativo em segundo plano. Veja a notificação permanente."
     }
     private fun stopWake() {
         stopService(Intent(this, VoiceAssistantService::class.java))
@@ -326,7 +321,7 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         super.onResume()
         foreground = true
         wakeMode = VoiceAssistantService.enabled
-        wakeToggle.text = if (wakeMode) "Desativar conversa" else "Ativar escuta: AJ"
+        wakeToggle.text = if (wakeMode) "Desativar conversa" else "Ativar escuta: Léo ou Leonan"
         if (speechReady) onInit(TextToSpeech.SUCCESS)
     }
     override fun onPause() {
